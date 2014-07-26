@@ -16,21 +16,21 @@ OPTIONS += -DARDUIO=105 -D__MK20DX256__ -DTEENSYDUINO=118
 #************************************************************************
 
 # path location for Teensy Loader, teensy_post_compile and teensy_reboot
-TOOLSPATH = /home/leonardo/Programs/arduino-1.0.5/hardware/tools/   # on Linux
+TOOLSPATH = $(ARDUINOHOME)/hardware/tools/
 #TOOLSPATH = ../../../tools/avr/bin   # on Mac or Windows
 
 # path location for Arduino libraries (currently not used)
-LIBRARYPATH = /home/leonardo/Programs/arduino-1.0.5/libraries/
+LIBRARYPATH = $(ARDUINOHOME)/libraries/
 
 # path location for the arm-none-eabi compiler
-COMPILERPATH = /home/leonardo/Programs/arduino-1.0.5/hardware/tools//arm-none-eabi/bin
+COMPILERPATH = $(ARDUINOHOME)/hardware/tools/arm-none-eabi/bin
 
 #************************************************************************
 # Settings below this point usually do not need to be edited
 #************************************************************************
 
 # CPPFLAGS = compiler options for C and C++
-CPPFLAGS = -Wall -g -Os -mcpu=cortex-m4 -mthumb -nostdlib -MMD $(OPTIONS) -I. -I/home/leonardo/Development/blinky/stmlib/third_party/STM
+CPPFLAGS = -Wall -g -Os -mcpu=cortex-m4 -mthumb -nostdlib -MMD $(OPTIONS) -I. -I./stmlib/third_party/STM
 
 # compiler options for C++ only
 CXXFLAGS = -std=gnu++0x -felide-constructors -fno-exceptions -fno-rtti
@@ -46,10 +46,10 @@ LIBS = -lm
 
 
 # names for the compiler programs
-CC = $(abspath $(COMPILERPATH))/arm-none-eabi-gcc
-CXX = $(abspath $(COMPILERPATH))/arm-none-eabi-g++
-OBJCOPY = $(abspath $(COMPILERPATH))/arm-none-eabi-objcopy
-SIZE = $(abspath $(COMPILERPATH))/arm-none-eabi-size
+CC = $(COMPILERPATH)/arm-none-eabi-gcc
+CXX = $(COMPILERPATH)/arm-none-eabi-g++
+OBJCOPY = $(COMPILERPATH)/arm-none-eabi-objcopy
+SIZE = $(COMPILERPATH)/arm-none-eabi-size
 
 # automatically create lists of the sources and objects
 # TODO: this does not handle Arduino libraries yet...
@@ -69,8 +69,8 @@ $(TARGET).elf: $(OBJS) mk20dx256.ld
 %.hex: %.elf
 	$(SIZE) $<
 	$(OBJCOPY) -O ihex -R .eeprom $< $@
-	$(abspath $(TOOLSPATH))/teensy_post_compile -file=$(basename $@) -path=$(shell pwd) -tools=$(abspath $(TOOLSPATH))
-	-$(abspath $(TOOLSPATH))/teensy_reboot
+	$(TOOLSPATH)/teensy_post_compile -file=$(basename $@) -path=$(shell pwd) -tools=$(TOOLSPATH)
+	-$(TOOLSPATH)/teensy_reboot
 
 
 # compiler generated dependency info
