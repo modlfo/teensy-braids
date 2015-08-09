@@ -1,24 +1,23 @@
 #include "WProgram.h"
 
-#include "macro_oscillator.h"
-#include "envelope.h"
 #include "Encoder.h"
 #include "Bounce.h"
 #include <i2c_t3.h>
 #include <SeeedOLED.h>
-using namespace braids;
+#include "blit.h"
+#include "svf.h"
+#include "vultin.h"
+#include "monoin.h"
+#include "adsr.h"
 
-MacroOscillator osc;
-Envelope env;
 IntervalTimer myTimer;
 
-const uint32_t kSampleRate = 96000;
-const uint16_t kAudioBlockSize = 28;
+const uint16_t kAudioBlockSize = 64;
 
 uint8_t sync_buffer[kAudioBlockSize];
 
-int16_t bufferA[kAudioBlockSize];
-int16_t bufferB[kAudioBlockSize];
+int32_t bufferA[kAudioBlockSize];
+int32_t bufferB[kAudioBlockSize];
 uint8_t buffer_sel;
 
 uint8_t buffer_index;
@@ -42,7 +41,7 @@ public:
         SeeedOled.setTextXY(3,3);
         SeeedOled.putString("Synthesizer");
         SeeedOled.setTextXY(5,1);
-        SeeedOled.putString("(Braids Engine)");
+        SeeedOled.putString("(Vult Engine)");
     };
 
     void setTextXY(uint8_t col,uint8_t row){
@@ -64,8 +63,8 @@ public:
         write_index = (write_index+1)%OLED_BUFFER_SIZE;
     };
 
-    void putPercentage(int16_t n){
-        int16_t num = n / 0x147;
+    void putPercentage(int32_t n){
+        int32_t num = n / 0x147;
         char buff[3];
         int8_t i=0;
         if(num==0){
@@ -150,9 +149,10 @@ public:
             disp_shape = 0;
             timbre = 0;
             disp_timbre = 0;
-            color = 0;
-            disp_color = 0;
+            cut = 0x7FFF;
+            disp_cut = 0;
             selector = -1;
+            sustain = 0x7FFF;
         };
 
     void init(){
@@ -204,7 +204,8 @@ public:
                 switch(current_encoder){
                     case 0: shape  = readEncoderParam(encoder1,shape); break;
                     case 1: timbre = readEncoderParam(encoder2,timbre); break;
-                    case 2: color  = readEncoderParam(encoder3,color); break;
+                    case 2: cut  = readEncoderParam(encoder3,cut); break;
+                    case 3: res  = readEncoderParam(encoder4,res); break;
                     default: break;
                 }
                 break;
@@ -218,7 +219,7 @@ public:
                 }
                 break;
             default:
-                int16_t dummy = 0;
+                int32_t dummy = 0;
                 switch(current_encoder){
                     case 0: dummy = readEncoderParam(encoder1,dummy); break;
                     case 1: dummy = readEncoderParam(encoder2,dummy); break;
@@ -234,32 +235,34 @@ public:
         force = 0;
     };
 
-    void    setShape(int16_t val) { shape  = val; };
-    int16_t getShape(void)        { return shape; };
-    void    setTimbre(int16_t val){ timbre = val; };
-    int16_t getTimbre(void)       { return timbre;};
-    void    setColor(int16_t val) { color  = val; };
-    int16_t getColor(void)        { return color; };
+    void    setShape(int32_t val) { shape  = val; };
+    int32_t getShape(void)        { return shape; };
+    void    setTimbre(int32_t val){ timbre = val; };
+    int32_t getTimbre(void)       { return timbre;};
+    void    setCut(int32_t val)   { cut  = val; };
+    int32_t getCut(void)          { return cut; };
+    void    setRes(int32_t val)   { res  = val; };
+    int32_t getRes(void)          { return res; };
 
-    void    setAttack(int16_t val)  { attack  = val; };
-    int16_t getAttack(void)         { return attack; };
-    void    setDecay(int16_t val)   { decay  = val; };
-    int16_t getDecay(void)          { return decay; };
-    void    setSustain(int16_t val) { sustain  = val; };
-    int16_t getSustain(void)        { return sustain; };
-    void    setRelease(int16_t val) { release  = val; };
-    int16_t getRelease(void)        { return release; };
+    void    setAttack(int32_t val)  { attack  = val; };
+    int32_t getAttack(void)         { return attack; };
+    void    setDecay(int32_t val)   { decay  = val; };
+    int32_t getDecay(void)          { return decay; };
+    void    setSustain(int32_t val) { sustain  = val; };
+    int32_t getSustain(void)        { return sustain; };
+    void    setRelease(int32_t val) { release  = val; };
+    int32_t getRelease(void)        { return release; };
 
 
 protected:
 
-    int16_t readEncoderParam(Encoder& encoder,int16_t param){
-        int16_t val = encoder.read();
+    int32_t readEncoderParam(Encoder& encoder,int32_t param){
+        int32_t val = encoder.read();
         int32_t ret_param = param;
         int32_t abs_val = val > 0 ? val : -val;
         if(abs_val>2){
             encoder.write(0);
-            ret_param += val*128;
+            ret_param += val*256;//128
             ret_param = ret_param > 0x7FFF ? 0x7FFF : ret_param;
             ret_param = ret_param < 0 ? 0 : ret_param;
         }
@@ -272,7 +275,8 @@ protected:
             case 0:
                 if(disp_shape!=shape || force ) { updateParam(shape,  "Shape  : ",2); disp_shape = shape; }
                 if(disp_timbre!=timbre || force){ updateParam(timbre, "Timbre : ",3); disp_timbre = timbre; }
-                if(disp_color!=color || force)  { updateParam(color,  "Color  : ",4); disp_color = color;}
+                if(disp_cut!=cut || force)  { updateParam(cut,  "Cut  : ",4); disp_cut = cut;}
+                if(disp_res!=res || force)  { updateParam(res,  "Res  : ",5); disp_res = res;}
                 break;
             case 1:
                 if(disp_attack!=attack || force )  { updateParam(attack, "Attack : ",2); disp_attack = attack; }
@@ -284,7 +288,7 @@ protected:
         }
     };
 
-    void updateParam(int16_t val,char* label,uint8_t pos){
+    void updateParam(int32_t val,char* label,uint8_t pos){
         oled.setTextXY(pos,1);
         oled.putString(label);
         oled.setTextXY(pos,9);
@@ -310,21 +314,23 @@ protected:
     uint8_t selector,force;
     uint8_t current_encoder;
 
-    int16_t shape;
-    int16_t disp_shape;
-    int16_t color;
-    int16_t disp_color;
-    int16_t timbre;
-    int16_t disp_timbre;
+    int32_t shape;
+    int32_t disp_shape;
+    int32_t timbre;
+    int32_t disp_timbre;
+    int32_t cut;
+    int32_t disp_cut;
+    int32_t res;
+    int32_t disp_res;
 
-    int16_t attack;
-    int16_t disp_attack;
-    int16_t decay;
-    int16_t disp_decay;
-    int16_t sustain;
-    int16_t disp_sustain;
-    int16_t release;
-    int16_t disp_release;
+    int32_t attack;
+    int32_t disp_attack;
+    int32_t decay;
+    int32_t disp_decay;
+    int32_t sustain;
+    int32_t disp_sustain;
+    int32_t release;
+    int32_t disp_release;
 
 };
 
@@ -333,6 +339,10 @@ UI ui;
 volatile uint8_t done;
 uint8_t midi_event;
 
+_blit_struct_osc osc;
+_state_variable_struct_svf svf;
+_monoin_struct_0 monoin;
+_adsr_struct_adsr adsr;
 // Timer interruption to put the following sample
 void putSample(void){
     if(!done){
@@ -340,11 +350,11 @@ void putSample(void){
         digitalWriteFast(13, midi_event);
     }
 
-    uint16_t val;
+    int32_t val;
     if(buffer_sel)
-        val = ((uint16_t)(bufferB[buffer_index]+0x7FFF))>>4;
+        val = ((bufferB[buffer_index]+0x7FFF))>>4;
     else
-        val = ((uint16_t)(bufferA[buffer_index]+0x7FFF))>>4;
+        val = ((bufferA[buffer_index]+0x7FFF))>>4;
 
     buffer_index = buffer_index+1;
     analogWrite(A14, val);
@@ -357,8 +367,8 @@ void putSample(void){
 
 }
 
-int16_t pitch,pre_pitch;
-int16_t p1,p1_pre,p2,p2_pre;
+int32_t pitch,pre_pitch;
+int32_t p1,p1_pre,p2,p2_pre;
 
 // Handles the ontrol change
 void OnControlChange(byte channel, byte control, byte value){
@@ -366,7 +376,7 @@ void OnControlChange(byte channel, byte control, byte value){
         ui.setShape(value << 7);
     }
     if(control==33){
-        ui.setColor(value << 7);
+        ui.setCut(value << 7);
     }
     if(control==34){
         ui.setTimbre(value << 7);
@@ -377,15 +387,17 @@ void OnControlChange(byte channel, byte control, byte value){
 void OnNoteOn(byte channel, byte note, byte velocity){
     // If the velocity is larger than zero, means that is turning on
     if(velocity){
-        // Sets the 7 bit midi value as pitch
-        pitch = note << 7;
-        // triggers a note
-        osc.Strike();
-        //env.Trigger(ENV_SEGMENT_ATTACK);
+        pitch = _monoin__noteOn(&monoin,fix_from_int(note));
     }
     else{
-        //env.Trigger(ENV_SEGMENT_DEAD);
+        pitch = _monoin__noteOff(&monoin,fix_from_int(note));
     }
+
+}
+
+// Handles note on events
+void OnNoteOff(byte channel, byte note, byte velocity){
+    pitch = _monoin__noteOff(&monoin,fix_from_int(note));
 
 }
 
@@ -399,11 +411,7 @@ extern "C" int main(void)
     wait = 0;
 
     // Initializes the objects
-    osc.Init();
-    env.Init();
-    osc.set_shape(MACRO_OSC_SHAPE_GRANULAR_CLOUD);
-    osc.set_parameters(0, 0);
-    myTimer.begin(putSample,1e6/96000.0);
+    myTimer.begin(putSample,1e6/32000.0);
 
     pinMode(13, OUTPUT);
     pinMode(23, OUTPUT);
@@ -412,10 +420,15 @@ extern "C" int main(void)
     // Defines the handlers of midi events
     usbMIDI.setHandleControlChange(OnControlChange);
     usbMIDI.setHandleNoteOn(OnNoteOn);
+    usbMIDI.setHandleNoteOff(OnNoteOff);
 
-    pitch = 44 << 7;
+    pitch = fix_from_int(44);
 
     ui.init();
+    _blit_struct_osc_init(&osc);
+    _state_variable_struct_svf_init(&svf);
+    _monoin_struct_0_init(&monoin);
+    _adsr_struct_adsr_init(&adsr);
     //delay(3000);
 
     // Loop
@@ -426,36 +439,36 @@ extern "C" int main(void)
         memset(sync_buffer, 0, sizeof(sync_buffer));
         // If the pitch changes update it
         if(pre_pitch!=pitch){
-            osc.set_pitch(pitch);
+
             pre_pitch = pitch;
         }
-        // Get the timbre and color parameters from the ui and set them
-        osc.set_parameters(ui.getTimbre(),ui.getColor());
-        //env.Update(ui.getAttack()>>8, ui.getDecay()>>8, ui.getSustain()>>8, ui.getRelease()>>8);
 
-        uint16_t shape = ui.getShape()>>10;
-        // Trims the shape to the valid values
-        shape = shape >= MACRO_OSC_SHAPE_DIGITAL_MODULATION ? MACRO_OSC_SHAPE_DIGITAL_MODULATION : shape<0 ? 0 : shape;
-
-        // Sets the shape
-        MacroOscillatorShape osc_shape = static_cast<MacroOscillatorShape>(shape);//
-        osc.set_shape(osc_shape);
+        int32_t shape = ui.getShape()*2;
+        int32_t timbre = ui.getTimbre()*2;
+        int32_t cut = ui.getCut()*2;
+        int32_t res = ui.getRes()*2;
+        int32_t attack = ui.getAttack()*2;
+        int32_t decay = ui.getDecay()*2;
+        int32_t sustain = ui.getSustain()*2;
+        int32_t release = ui.getRelease()*2;
 
         if(buffer_sel){
-            osc.Render(sync_buffer, bufferA, kAudioBlockSize);
-            //for(int i=0;i<kAudioBlockSize;i++){
-            //    uint16_t ad_value = env.Render();
-            //    int32_t product = static_cast<int32_t>(ad_value) * bufferA[i];
-            //    bufferA[i] = product>>16;
-            //}
+            for(int i=0;i<kAudioBlockSize;i++){
+                int32_t v = _blit__osc(&osc,pitch,timbre,shape);
+                int32_t env = _adsr__adsr(&adsr,_monoin__isGateOn(&monoin),attack,decay,sustain,release);
+                v = _state_variable__svf(&svf,v,cut,res,0);
+                //int32_t env = _monoin__isGateOn(&monoin);
+                bufferA[i] = fix_mul(v,env);
+            }
         }
         else{
-            osc.Render(sync_buffer, bufferB, kAudioBlockSize);
-            //for(int i=0;i<kAudioBlockSize;i++){
-            //    uint16_t ad_value = env.Render();
-            //    int32_t product = static_cast<int32_t>(ad_value) * bufferB[i];
-            //    bufferB[i] = product >> 16 ;
-            //}
+            for(int i=0;i<kAudioBlockSize;i++){
+                int32_t v = _blit__osc(&osc,pitch,timbre,shape);
+                int32_t env = _adsr__adsr(&adsr,_monoin__isGateOn(&monoin),attack,decay,sustain,release);
+                v = _state_variable__svf(&svf,v,cut,res,0);
+                //int32_t env = _monoin__isGateOn(&monoin);
+                bufferB[i] = fix_mul(v,env);
+            }
         }
         // Process the buttons and screen
         ui.process();

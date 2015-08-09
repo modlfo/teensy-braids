@@ -14,7 +14,7 @@ OPTIONS += -DARDUIO=105 -D__MK20DX256__ -DTEENSYDUINO=118
 # To use this makefile without Arduino, copy the resources from these
 # locations and edit the pathnames.  The rest of Arduino is not needed.
 #************************************************************************
-
+ARDUINOHOME=~/Programs/Arduino.app/Contents/Resources/Java/
 # path location for Teensy Loader, teensy_post_compile and teensy_reboot
 TOOLSPATH = $(ARDUINOHOME)/hardware/tools/
 #TOOLSPATH = ../../../tools/avr/bin   # on Mac or Windows
