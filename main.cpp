@@ -46,7 +46,7 @@ public:
     };
 
     void putPercentage(int16_t n){
-        int16_t num = n / 0x147;
+        int16_t num = n / 0x145;
         char buff[3];
         int8_t i=0;
         if(num==0){
@@ -128,8 +128,8 @@ public:
         button4(2,10)
         {
             for(int8_t i = 0; i<16;i++){
-                controls[i] = 0;
-                disp_controls[i] = 0;
+                values[i] = 0;
+                disp_values[i] = 0;
             }
             selector = -1;
             encoders[0] = &encoder1;
@@ -149,6 +149,7 @@ public:
             char label[10];
             sprintf(label,"CC %i",30+i);
             putLabel(label,i);
+            controls[i]=30+i;
         }
         // Initializes the screen
         oled.init();
@@ -199,24 +200,28 @@ public:
             int8_t index = 4 * selector;
             // Process the encoders depending on the active page
             for(int8_t i = 0; i<4; i++){
-                controls[index+i] = readEncoderParam(*encoders[i],controls[index+i]);
+                values[index+i] = readEncoderParam(*encoders[i],values[index+i]);
             }
             update();
             force = 0;
         }
     };
 
-    void setControl(int8_t val,int8_t index) {
-        controls[index] = val;
+    void setControl(int16_t index,int16_t val) {
+        values[index] = val;
     };
     int16_t getControl(int8_t index) {
-        return controls[index];
+        return values[index];
     };
     void putLabel(char* txt,int8_t index){
         char* label = (char*) &labels[index*9];
         memcpy(label,txt,8);
         label[8] = 0;
     };
+
+    void setHandleControlChange(void (*fn)(uint8_t channel, uint8_t control, uint8_t value)){
+        callback = fn;
+    }
 
 protected:
 
@@ -241,9 +246,12 @@ protected:
             char* label;
             for(int8_t i = 0; i<4; i++){
                 label = (char*)&labels[(index+i)*9];
-                if(disp_controls[index+i] != controls[index+i] || force ){
-                    updateParam(controls[index+i],label,2+i);
-                    disp_controls[index+i] = controls[index+i];
+                if(disp_values[index+i] != values[index+i] || force ){
+                    updateParam(values[index+i],label,2+i);
+                    disp_values[index+i] = values[index+i];
+                    if(callback){
+                        callback(0,controls[index+i],values[index+i]>>8);
+                    }
                 }
             }
         }
@@ -276,10 +284,13 @@ protected:
     uint8_t selector,force;
     uint8_t current_encoder;
 
+    int16_t values[16];
     int16_t controls[16];
-    int16_t disp_controls[16];
+    int16_t disp_values[16];
     Encoder* encoders[4];
     char labels[9*16];
+
+    void (*callback)(uint8_t channel, uint8_t control, uint8_t value) = NULL;
 };
 
 // User interface object
@@ -289,15 +300,15 @@ uint8_t midi_event;
 
 
 // Handles the ontrol change
-void OnControlChange(byte channel, byte control, byte value){
+void OnControlChange(uint8_t channel, uint8_t control, uint8_t value){
     if(control>=30 && control<=46){
-        int8_t index = control - 30;
-        ui.setControl(index,value << 7);
+        uint8_t index = control - 30;
+        ui.setControl(index,value << 8);
     }
 }
 
 // Handles note on events
-void OnNoteOn(byte channel, byte note, byte velocity){
+void OnNoteOn(uint8_t channel, uint8_t note, uint8_t velocity){
     // If the velocity is larger than zero, means that is turning on
     if(velocity){
         // Sets the 7 bit midi value as pitch
@@ -305,6 +316,10 @@ void OnNoteOn(byte channel, byte note, byte velocity){
     else {
     }
 
+}
+
+void sendControlChange(uint8_t channel, uint8_t control, uint8_t value){
+    usbMIDI.sendControlChange(control,value,channel);
 }
 
 extern "C" int main(void)
@@ -320,7 +335,7 @@ extern "C" int main(void)
     usbMIDI.setHandleNoteOn(OnNoteOn);
 
     ui.init();
-    //delay(3000);
+    ui.setHandleControlChange(sendControlChange);
 
     // Loop
     while (1) {
