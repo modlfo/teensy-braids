@@ -10,10 +10,10 @@
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
  *
- * 1. The above copyright notice and this permission notice shall be 
+ * 1. The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
  *
- * 2. If the Software is incorporated into a build system that allows 
+ * 2. If the Software is incorporated into a build system that allows
  * selection among a list of target devices, then similar target
  * devices manufactured by PJRC.COM must be included in the list of
  * target devices and selectable in the same manner.
@@ -31,10 +31,18 @@
 #ifndef USBflightsim_h_
 #define USBflightsim_h_
 
-#if defined(USB_FLIGHTSIM) && defined(__cplusplus)
+#include "usb_desc.h"
+
+#if defined(FLIGHTSIM_INTERFACE)
+
+#ifdef __cplusplus
 
 #include <inttypes.h>
 #include "elapsedMillis.h"
+
+// workaround for elapsedMillis.h bringing in WProgram.h which brings usb_undef.h
+#undef USB_DESC_LIST_DEFINE
+#include "usb_desc.h"
 
 class FlightSimClass;
 class FlightSimCommand;
@@ -58,6 +66,7 @@ private:
 	static void enable(void) { enabled = 1; enableTimeout = 0; }
 	static void disable(void) { enabled = 0; }
 	static void xmit(const void *p1, uint8_t n1, const void *p2, uint8_t n2);
+	static void xmit_big_packet(const void *p1, uint8_t n1, const void *p2, uint8_t n2);
 	friend class FlightSimCommand;
 	friend class FlightSimInteger;
 	friend class FlightSimFloat;
@@ -106,13 +115,23 @@ public:
 	void identify(void);
 	void update(long val);
 	static FlightSimInteger * find(unsigned int n);
-	void onChange(void (*fptr)(long)) { change_callback = fptr; }
+	void onChange(void (*fptr)(long)) { 
+		hasCallbackInfo=false;
+		change_callback = fptr; 
+	}
+	void onChange(void (*fptr)(long,void*), void* info) {
+		hasCallbackInfo=true;
+		change_callback = (void (*)(long))fptr;
+		callbackInfo = info;
+	}
 	// TODO: math operators....  + - * / % ++ --
 private:
 	unsigned int id;
 	const _XpRefStr_ *name;
 	long value;
 	void (*change_callback)(long);
+	void* callbackInfo;
+	bool  hasCallbackInfo;
 	FlightSimInteger *next;
 	static FlightSimInteger *first;
 	static FlightSimInteger *last;
@@ -140,13 +159,23 @@ public:
 	void identify(void);
 	void update(float val);
 	static FlightSimFloat * find(unsigned int n);
-	void onChange(void (*fptr)(float)) { change_callback = fptr; }
+	void onChange(void (*fptr)(float)) {
+		hasCallbackInfo=false;
+		change_callback = fptr; 
+	}
+	void onChange(void (*fptr)(float,void*), void* info) {
+		hasCallbackInfo=true;
+		change_callback = (void (*)(float))fptr;
+		callbackInfo = info;
+	}
 	// TODO: math operators....  + - * / % ++ --
 private:
 	unsigned int id;
 	const _XpRefStr_ *name;
 	float value;
 	void (*change_callback)(float);
+	void* callbackInfo;
+	bool  hasCallbackInfo;
 	FlightSimFloat *next;
 	static FlightSimFloat *first;
 	static FlightSimFloat *last;
@@ -180,6 +209,8 @@ public:
 
 extern FlightSimClass FlightSim;
 
+#endif // __cplusplus
 
-#endif
-#endif
+#endif // FLIGHTSIM_INTERFACE
+
+#endif // USBflightsim_h_

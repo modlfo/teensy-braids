@@ -84,6 +84,7 @@ SECTIONS
 	.data : AT (_etext) {
 		. = ALIGN(4);
 		_sdata = .; 
+		*(.fastrun*)
 		*(.data*)
 		. = ALIGN(4);
 		_edata = .; 
@@ -95,12 +96,14 @@ SECTIONS
 
 	.bss : {
 		. = ALIGN(4);
-		_sbss = .; 
+		_sbss = .;
+		__bss_start__ = .;
 		*(.bss*)
 		*(COMMON)
 		. = ALIGN(4);
 		_ebss = .;
 		__bss_end = .;
+		__bss_end__ = .;
 	} > RAM
 
 	_estack = ORIGIN(RAM) + LENGTH(RAM);

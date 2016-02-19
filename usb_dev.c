@@ -10,10 +10,10 @@
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
  *
- * 1. The above copyright notice and this permission notice shall be 
+ * 1. The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
  *
- * 2. If the Software is incorporated into a build system that allows 
+ * 2. If the Software is incorporated into a build system that allows
  * selection among a list of target devices, then similar target
  * devices manufactured by PJRC.COM must be included in the list of
  * target devices and selectable in the same manner.
@@ -26,11 +26,22 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * Trying to understand this rather complex code?
+ *
+ * Kevin Cuzner wrote a simpler version, and a great blog article:
+ *   http://kevincuzner.com/2014/12/12/teensy-3-1-bare-metal-writing-a-usb-driver/
+ *   https://github.com/kcuzner/teensy-oscilloscope/blob/master/scope-teensy/src/usb.c
+ *
+ * Andy Payne wrote another relatively simple USB example for Freescale Kinetis
+ *   https://github.com/payne92/bare-metal-arm
  */
 
-#include "mk20dx128.h"
-//#include "HardwareSerial.h"
 #include "usb_dev.h"
+#if F_CPU >= 20000000 && defined(NUM_ENDPOINTS)
+
+#include "kinetis.h"
+//#include "HardwareSerial.h"
 #include "usb_mem.h"
 
 // buffer descriptor table
@@ -266,7 +277,7 @@ static void usb_setup(void)
 			endpoint0_stall();
 			return;
 		}
-		(*(uint8_t *)(&USB0_ENDPT0 + setup.wIndex * 4)) &= ~0x02;
+		(*(uint8_t *)(&USB0_ENDPT0 + i * 4)) &= ~0x02;
 		// TODO: do we need to clear the data toggle here?
 		break;
 	  case 0x0302: // SET_FEATURE (endpoint)
@@ -276,7 +287,7 @@ static void usb_setup(void)
 			endpoint0_stall();
 			return;
 		}
-		(*(uint8_t *)(&USB0_ENDPT0 + setup.wIndex * 4)) |= 0x02;
+		(*(uint8_t *)(&USB0_ENDPT0 + i * 4)) |= 0x02;
 		// TODO: do we need to clear the data toggle here?
 		break;
 	  case 0x0680: // GET_DESCRIPTOR
@@ -286,7 +297,7 @@ static void usb_setup(void)
 		//serial_print("\n");
 		for (list = usb_descriptor_list; 1; list++) {
 			if (list->addr == NULL) break;
-			//if (setup.wValue == list->wValue && 
+			//if (setup.wValue == list->wValue &&
 			//(setup.wIndex == list->wIndex) || ((setup.wValue >> 8) == 3)) {
 			if (setup.wValue == list->wValue && setup.wIndex == list->wIndex) {
 				data = list->addr;
@@ -320,11 +331,29 @@ static void usb_setup(void)
 		return;
 #if defined(CDC_STATUS_INTERFACE)
 	  case 0x2221: // CDC_SET_CONTROL_LINE_STATE
+		usb_cdc_line_rtsdtr_millis = systick_millis_count;
 		usb_cdc_line_rtsdtr = setup.wValue;
 		//serial_print("set control line state\n");
 		break;
+	  case 0x2321: // CDC_SEND_BREAK
+		break;
 	  case 0x2021: // CDC_SET_LINE_CODING
 		//serial_print("set coding, waiting...\n");
+		return;
+#endif
+
+#if defined(MTP_INTERFACE)
+	case 0x2164: // Cancel Request (PTP spec, 5.2.1, page 8)
+		// TODO: required by PTP spec
+		endpoint0_stall();
+		return;
+	case 0x2166: // Device Reset (PTP spec, 5.2.3, page 10)
+		// TODO: required by PTP spec
+		endpoint0_stall();
+		return;
+	case 0x2167: // Get Device Statis (PTP spec, 5.2.4, page 10)
+		// TODO: required by PTP spec
+		endpoint0_stall();
 		return;
 #endif
 
@@ -529,8 +558,10 @@ usb_packet_t *usb_rx(uint32_t endpoint)
 	if (endpoint >= NUM_ENDPOINTS) return NULL;
 	__disable_irq();
 	ret = rx_first[endpoint];
-	if (ret) rx_first[endpoint] = ret->next;
-	usb_rx_byte_count_data[endpoint] -= ret->len;
+	if (ret) {
+		rx_first[endpoint] = ret->next;
+		usb_rx_byte_count_data[endpoint] -= ret->len;
+	}
 	__enable_irq();
 	//serial_print("rx, epidx=");
 	//serial_phex(endpoint);
@@ -625,7 +656,7 @@ void usb_rx_memory(usb_packet_t *packet)
 	__enable_irq();
 	// we should never reach this point.  If we get here, it means
 	// usb_rx_memory_needed was set greater than zero, but no memory
-	// was actually needed.  
+	// was actually needed.
 	usb_rx_memory_needed = 0;
 	usb_free(packet);
 	return;
@@ -684,7 +715,7 @@ void usb_tx(uint32_t endpoint, usb_packet_t *packet)
 void _reboot_Teensyduino_(void)
 {
 	// TODO: initialize R0 with a code....
-	asm volatile("bkpt");
+	__asm__ volatile("bkpt");
 }
 
 
@@ -700,7 +731,7 @@ void usb_isr(void)
 	restart:
 	status = USB0_ISTAT;
 
-	if ((status & USB_INTEN_SOFTOKEN /* 04 */ )) {
+	if ((status & USB_ISTAT_SOFTOK /* 04 */ )) {
 		if (usb_configuration) {
 			t = usb_reboot_timer;
 			if (t) {
@@ -728,7 +759,7 @@ void usb_isr(void)
 			usb_flightsim_flush_callback();
 #endif
 		}
-		USB0_ISTAT = USB_INTEN_SOFTOKEN;
+		USB0_ISTAT = USB_ISTAT_SOFTOK;
 	}
 
 	if ((status & USB_ISTAT_TOKDNE /* 08 */ )) {
@@ -863,7 +894,7 @@ void usb_isr(void)
 		table[index(0, RX, ODD)].addr = ep0_rx1_buf;
 		table[index(0, TX, EVEN)].desc = 0;
 		table[index(0, TX, ODD)].desc = 0;
-		
+
 		// activate endpoint 0
 		USB0_ENDPT0 = USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN | USB_ENDPT_EPHSHK;
 
@@ -932,10 +963,13 @@ void usb_init(void)
 	// assume 48 MHz clock already running
 	// SIM - enable clock
 	SIM_SCGC4 |= SIM_SCGC4_USBOTG;
+#ifdef HAS_KINETIS_MPU
+	MPU_RGDAAC0 |= 0x03000000;
+#endif
 
 	// reset USB module
-	USB0_USBTRC0 = USB_USBTRC_USBRESET;
-	while ((USB0_USBTRC0 & USB_USBTRC_USBRESET) != 0) ; // wait for reset to end
+	//USB0_USBTRC0 = USB_USBTRC_USBRESET;
+	//while ((USB0_USBTRC0 & USB_USBTRC_USBRESET) != 0) ; // wait for reset to end
 
 	// set desc table base addr
 	USB0_BDTPAGE1 = ((uint32_t)table) >> 8;
@@ -947,7 +981,7 @@ void usb_init(void)
 	USB0_ERRSTAT = 0xFF;
 	USB0_OTGISTAT = 0xFF;
 
-	USB0_USBTRC0 |= 0x40; // undocumented bit
+	//USB0_USBTRC0 |= 0x40; // undocumented bit
 
 	// enable USB
 	USB0_CTL = USB_CTL_USBENSOFEN;
@@ -965,4 +999,10 @@ void usb_init(void)
 }
 
 
+#else // F_CPU < 20 MHz && defined(NUM_ENDPOINTS)
 
+void usb_init(void)
+{
+}
+
+#endif // F_CPU >= 20 MHz && defined(NUM_ENDPOINTS)
