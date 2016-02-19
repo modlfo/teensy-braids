@@ -23,7 +23,7 @@ TOOLSPATH = $(ARDUINOHOME)/hardware/tools/
 LIBRARYPATH = $(ARDUINOHOME)/libraries/
 
 # path location for the arm-none-eabi compiler
-COMPILERPATH = $(ARDUINOHOME)/hardware/tools/arm-none-eabi/bin
+COMPILERPATH = $(ARDUINOHOME)/hardware/tools/arm/bin/
 
 #************************************************************************
 # Settings below this point usually do not need to be edited
